@@ -11,11 +11,11 @@ end
 Base.eltype(m::MKLcsr{T}) where {T} = T
  
 
-for (T, cr, ex) in (
-    (Float32,    :mkl_sparse_s_create_csr, :mkl_sparse_s_export_csr,),
-    (Float64,    :mkl_sparse_d_create_csr, :mkl_sparse_d_export_csr,),
-    (ComplexF32, :mkl_sparse_c_create_csr, :mkl_sparse_c_export_csr,),
-    (ComplexF64, :mkl_sparse_z_create_csr, :mkl_sparse_z_export_csr,),
+for (T, cr, ex, syrk) in (
+    (Float32,    :mkl_sparse_s_create_csr, :mkl_sparse_s_export_csr, :mkl_sparse_s_syrkd,),
+    (Float64,    :mkl_sparse_d_create_csr, :mkl_sparse_d_export_csr, :mkl_sparse_d_syrkd,),
+    (ComplexF32, :mkl_sparse_c_create_csr, :mkl_sparse_c_export_csr, :mkl_sparse_c_syrkd,),
+    (ComplexF64, :mkl_sparse_z_create_csr, :mkl_sparse_z_export_csr, :mkl_sparse_z_syrkd,),
     )
     @eval begin
         function csrptr(adjm::Adjoint{$T,SparseMatrixCSC{$T,BlasInt}})
@@ -42,7 +42,7 @@ for (T, cr, ex) in (
                     Ref(value),
                 )
             end
-            p
+            return p
         end
 
         function SparseArrays.SparseMatrixCSC(csrpt::Ptr{MKLcsr{$T}})
@@ -73,7 +73,19 @@ for (T, cr, ex) in (
             unsafe_copyto!(pointer(colvals), col_indx[], nonzeros)
             nzvals = Vector{$T}(undef, nonzeros)
             unsafe_copyto!(pointer(nzvals), values[], nonzeros)
-            SparseMatrixCSC{$T,BlasInt}(cols[], rows[], rowptr, colvals, nzvals)     
+            return SparseMatrixCSC{$T,BlasInt}(cols[], rows[], rowptr, colvals, nzvals)     
+        end
+
+        function syrkd!(C::StridedMatrix{$T}, Apt::Ptr{MKLcsr{$T}}, op::Char, α::Number, β::Number)
+            ret = ccall(
+                ($(string(syrk)), libmkl_rt),
+                sparse_status_t,
+                (sparse_operation_t, Ptr{MKLcsr{$T}}, $T, $T, Ptr{$T}, sparse_layout_t, BlasInt),
+                uppercase(op) == 'T' ? SPARSE_OPERATION_TRANSPOSE : SPARSE_OPERATION_NON_TRANSPOSE,
+                Apt, α, β, C, SPARSE_LAYOUT_COLUMN_MAJOR, stride(C, 2),
+            )
+            ret == SPARSE_STATUS_SUCCESS || throw(ArgumentError(ret))
+            return C
         end
     end # eval        
 end #loop on types

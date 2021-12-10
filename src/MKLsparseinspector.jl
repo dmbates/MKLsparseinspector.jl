@@ -14,12 +14,14 @@ end
 
 include("enums.jl")
 include("types.jl")
+include("toplevel.jl")
 
 export
     MKLcsr,
     MKLFloats,
 
 
-    csrptr
+    csrptr,
+    syrkd!
 
 end
